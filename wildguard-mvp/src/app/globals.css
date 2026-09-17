@@ -1,0 +1,30 @@
+@import "tailwindcss";
+
+:root {
+  /* Bushveld-and-tarmac palette: deep corridor green, tarmac charcoal,
+     amber warning, alert red, sensor blue — grounded in the actual
+     subject matter (transport ops + wildlife corridors) rather than a
+     generic SaaS palette. */
+  --color-corridor-green: #1f4d3a;
+  --color-tarmac: #1c2024;
+  --color-warning-amber: #c17817;
+  --color-alert-red: #a3271f;
+  --color-sensor-blue: #205a7a;
+  --color-paper: #f6f5f1;
+
+  --background: var(--color-paper);
+  --foreground: var(--color-tarmac);
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: ui-sans-serif, system-ui, "Segoe UI", sans-serif;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #14171a;
+    --foreground: #eceae4;
+  }
+}
