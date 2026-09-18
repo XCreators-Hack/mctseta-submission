@@ -1,34 +1,66 @@
-import type { TelemetryStatus } from "./types";
-
-const STATUS_LABELS: Record<string, string> = {
-  very_close: "Very close",
-  close: "Close",
-  nearby: "Nearby",
-  clear: "Clear",
-};
-
-export function formatStatusLabel(status: TelemetryStatus): string {
-  return STATUS_LABELS[status] ?? status.replace(/_/g, " ");
-}
+import type { ControlMode, GateState, TelemetryStatus } from "./types";
 
 export type StatusTone = "critical" | "caution" | "positive" | "neutral";
 
-// Visual tone per status. Only three colours are used in total (danger,
-// accent, safe) — "neutral" reuses the muted grey already used for
-// secondary text, so a fully clear reading doesn't compete for attention.
-export function statusTone(status: TelemetryStatus): StatusTone {
+const DETECTION_LABELS: Record<TelemetryStatus, string> = {
+  road_clear: "Road clear",
+  animal_crossing: "Animal crossing detected",
+  animal_ahead: "Animal ahead",
+};
+
+export function detectionLabel(status: TelemetryStatus): string {
+  return DETECTION_LABELS[status] ?? status;
+}
+
+// Visual tone per detection status. Only three colours are used in total
+// (danger, accent, safe) so a fully clear reading doesn't compete for
+// attention with an active alert.
+export function detectionTone(status: TelemetryStatus): StatusTone {
   switch (status) {
-    case "very_close":
+    case "animal_ahead":
       return "critical";
-    case "close":
+    case "animal_crossing":
       return "caution";
-    case "nearby":
+    case "road_clear":
       return "positive";
-    case "clear":
-      return "neutral";
     default:
       return "neutral";
   }
+}
+
+/**
+ * The directive a driver should follow right now, based on live
+ * telemetry. Used on the Fleet / Logistics view.
+ */
+export function driverDirective(status: TelemetryStatus): "PROCEED" | "SLOW DOWN" | "STOP" {
+  switch (status) {
+    case "road_clear":
+      return "PROCEED";
+    case "animal_crossing":
+      return "SLOW DOWN";
+    case "animal_ahead":
+      return "STOP";
+    default:
+      return "STOP";
+  }
+}
+
+const DETECTION_SUBLINES: Record<TelemetryStatus, string> = {
+  road_clear: "Safe to proceed",
+  animal_crossing: "Animal crossing detected",
+  animal_ahead: "Animal ahead",
+};
+
+export function detectionSubline(status: TelemetryStatus): string {
+  return DETECTION_SUBLINES[status] ?? "";
+}
+
+export function gateStateLabel(gateState: GateState): string {
+  return gateState === "open" ? "Open" : "Closed";
+}
+
+export function controlModeLabel(mode: ControlMode): string {
+  return mode === "manual_override" ? "Manual override" : "Automatic";
 }
 
 export function formatRelativeTime(isoString: string): string {

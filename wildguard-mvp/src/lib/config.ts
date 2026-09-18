@@ -8,3 +8,4 @@ export const POLL_INTERVAL_MS = 2000;
 
 // Telemetry older than this is treated as stale / device offline.
 export const STALE_THRESHOLD_MS = 10_000;
+

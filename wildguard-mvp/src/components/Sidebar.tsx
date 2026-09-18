@@ -2,12 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-
-const NAV_ITEMS = [
-  { href: "/", label: "Dashboard" },
-  { href: "/device", label: "Device" },
-  { href: "/system", label: "System" },
-];
+import { NAV_ITEMS } from "@/lib/nav";
 
 export default function Sidebar() {
   const pathname = usePathname();
@@ -18,7 +13,7 @@ export default function Sidebar() {
         <span className="h-2 w-2 rounded-full bg-accent pulse shrink-0" aria-hidden="true" />
         <div>
           <div className="text-sm font-semibold text-text">EcoWildGuard</div>
-          <div className="text-xs text-muted mt-0.5">Monitoring console</div>
+          <div className="text-xs text-muted mt-0.5">Crossing monitoring</div>
         </div>
       </div>
       <nav className="flex flex-col gap-0.5 p-2">
@@ -42,7 +37,7 @@ export default function Sidebar() {
       </nav>
       <div className="mt-auto p-4 border-t border-border text-[11px] text-muted">
         <div>Prototype build</div>
-        <div className="mono mt-0.5">v0.1.0</div>
+        <div className="mono mt-0.5">v0.2.0</div>
       </div>
     </aside>
   );

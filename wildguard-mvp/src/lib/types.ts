@@ -1,28 +1,25 @@
 /**
  * Core telemetry contract.
  *
- * The prototype only sends `distance`, but the API layer and dashboard are
- * written against this shape so that future fields (engineTemperature,
- * batteryVoltage, latitude/longitude, etc.) can be added to this interface
- * and picked up by new cards without touching the polling/fetch logic.
+ * The ESP32 firmware reports a detection status plus the boom-gate state
+ * and control mode. This is a monitoring-only prototype: the frontend
+ * reads this shape from the Express API and never writes back to the
+ * device.
  */
 export interface Telemetry {
   deviceId: string;
   distance: number;
   status: TelemetryStatus;
+  gateState: GateState;
+  controlMode: ControlMode;
   updatedAt: string; // ISO timestamp
-
-  // Reserved for future vehicle telemetry. Optional so the current
-  // ESP32 payload (distance only) remains valid.
-  engineTemperature?: number;
-  batteryVoltage?: number;
-  brakeStatus?: string;
-  engineFault?: boolean;
-  latitude?: number;
-  longitude?: number;
 }
 
-export type TelemetryStatus = "very_close" | "close" | "nearby" | "clear" | string;
+export type TelemetryStatus = "road_clear" | "animal_crossing" | "animal_ahead";
+
+export type GateState = "open" | "closed";
+
+export type ControlMode = "auto" | "manual_override";
 
 export interface HealthCheck {
   status: string;

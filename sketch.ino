@@ -1,57 +1,81 @@
 #include <WiFi.h>
 #include <HTTPClient.h>
 #include <ESP32Servo.h>
+#include <LiquidCrystal.h>
 
 // =====================================================
-// WIFI SETTINGS
+// WIFI
 // =====================================================
 
-const char* WIFI_SSID = "Student WI-FI";
-const char* WIFI_PASSWORD = "Stud3nt!@!";
+const char *WIFI_SSID =
+    "Student WI-FI";
 
+const char *WIFI_PASSWORD =
+    "Stud3nt!@!";
 
 // =====================================================
-// API SETTINGS
+// API
 // =====================================================
 
-// Change this to your laptop's IPv4 address.
+// Replace with your laptop IPv4 address.
 //
 // Example:
-// http://192.168.1.105:3000/api/telemetry
+// http://192.168.0.105:4000/api/telemetry
 
-const char* API_URL =
-  "http://192.168.40.86:4000/api/telemetry";
+const char *API_URL =
+    "http://192.168.40.86:4000/api/telemetry";
 
-// Device identification
-const char* DEVICE_ID =
-  "ecowildguard-001";
+const char *DEVICE_ID =
+    "ecowildguard-001";
 
-// Development API key
-const char* DEVICE_API_KEY =
-  "ewg_dev_a7K9mQ2xR8vP4nL6";
-
+const char *DEVICE_API_KEY =
+    "ewg_dev_a7K9mQ2xR8vP4nL6";
 
 // =====================================================
-// PINS
+// ULTRASONIC SENSOR
 // =====================================================
 
-// HC-SR04
 const int trigPin = 18;
 const int echoPin = 19;
 
-// Passive buzzer
+// =====================================================
+// PASSIVE BUZZER
+// =====================================================
+
 const int buzzerPin = 27;
-
-// Servo
-const int servoPin = 25;
-
 
 // =====================================================
 // SERVO
 // =====================================================
 
-Servo myServo;
+const int servoPin = 25;
 
+Servo gateServo;
+
+// Adjust these if your physical gate moves
+// in the opposite direction.
+
+const int GATE_CLOSED = 0;
+const int GATE_OPEN = 90;
+
+// Current gate state
+bool gateIsOpen = false;
+
+// Prevents startup state from being ignored
+bool gateInitialized = false;
+
+// =====================================================
+// LCD
+// RS, E, D4, D5, D6, D7
+// =====================================================
+
+LiquidCrystal lcd(
+    13,
+    14,
+    16,
+    17,
+    21,
+    22);
 
 // =====================================================
 // SENSOR VARIABLES
@@ -61,180 +85,567 @@ long duration = 0;
 
 float distance = -1;
 
+// =====================================================
+// DISTANCE THRESHOLDS
+// =====================================================
+
+// Very close animal
+const float CRITICAL_DISTANCE = 10.0;
+
+// Gate closes at or below this distance
+const float GATE_CLOSE_DISTANCE = 30.0;
+
+// Gate does not reopen until distance reaches this.
+// This prevents servo flickering around 30 cm.
+const float GATE_OPEN_DISTANCE = 40.0;
 
 // =====================================================
 // TELEMETRY TIMER
 // =====================================================
 
-// Send data every 2 seconds
+const unsigned long TELEMETRY_INTERVAL =
+    2000;
 
-const unsigned long SEND_INTERVAL = 2000;
+unsigned long lastTelemetryTime = 0;
 
-unsigned long lastSendTime = 0;
+// =====================================================
+// LCD TIMER
+// =====================================================
 
+const unsigned long LCD_INTERVAL =
+    300;
+
+unsigned long lastLCDUpdate = 0;
+
+// =====================================================
+// BUZZER TIMER
+// =====================================================
+
+unsigned long lastBuzzerTime = 0;
 
 // =====================================================
 // SETUP
 // =====================================================
 
-void setup() {
+void setup()
+{
 
   Serial.begin(115200);
 
-  delay(1000);
+  delay(500);
 
+  // ---------------------------------------------------
+  // LCD
+  // ---------------------------------------------------
+
+  lcd.begin(16, 2);
+
+  displayMessage(
+      "EcoWildGuard",
+      "Starting...");
+
+  // ---------------------------------------------------
+  // ULTRASONIC
+  // ---------------------------------------------------
+
+  pinMode(
+      trigPin,
+      OUTPUT);
+
+  pinMode(
+      echoPin,
+      INPUT);
+
+  digitalWrite(
+      trigPin,
+      LOW);
+
+  // ---------------------------------------------------
+  // BUZZER
+  // ---------------------------------------------------
+
+  pinMode(
+      buzzerPin,
+      OUTPUT);
+
+  noTone(
+      buzzerPin);
+
+  // ---------------------------------------------------
+  // SERVO
+  // ---------------------------------------------------
+
+  gateServo.setPeriodHertz(50);
+
+  gateServo.attach(
+      servoPin,
+      500,
+      2500);
+
+  // Force a known starting state.
+  setGate(false);
+
+  // ---------------------------------------------------
+  // SERIAL
+  // ---------------------------------------------------
 
   Serial.println();
   Serial.println("==============================");
-  Serial.println(" EcoWildGuard ESP32");
+  Serial.println(" EcoWildGuard");
   Serial.println("==============================");
 
-
   // ---------------------------------------------------
-  // Ultrasonic Sensor
-  // ---------------------------------------------------
-
-  pinMode(trigPin, OUTPUT);
-
-  pinMode(echoPin, INPUT);
-
-  digitalWrite(trigPin, LOW);
-
-
-  // ---------------------------------------------------
-  // Buzzer
-  // ---------------------------------------------------
-
-  pinMode(buzzerPin, OUTPUT);
-
-  noTone(buzzerPin);
-
-
-  // ---------------------------------------------------
-  // Servo
-  // ---------------------------------------------------
-
-  myServo.setPeriodHertz(50);
-
-  myServo.attach(
-    servoPin,
-    500,
-    2500
-  );
-
-  myServo.write(0);
-
-
-  // ---------------------------------------------------
-  // Wi-Fi
+  // WIFI
   // ---------------------------------------------------
 
   connectToWiFi();
 
+  displayMessage(
+      "SYSTEM READY",
+      "AUTO MODE");
 
-  Serial.println();
-  Serial.println("System ready.");
+  delay(1000);
 }
-
 
 // =====================================================
 // MAIN LOOP
 // =====================================================
 
-void loop() {
+void loop()
+{
 
-  // Measure distance
-
-  distance = measureDistance();
-
-
-  // ---------------------------------------------------
-  // INVALID SENSOR READING
-  // ---------------------------------------------------
-
-  if (distance < 2 || distance > 400) {
-
-    Serial.println("Invalid / no distance reading");
-
-    noTone(buzzerPin);
-
-    myServo.write(0);
-  }
-
+  unsigned long now =
+      millis();
 
   // ---------------------------------------------------
-  // VALID SENSOR READING
+  // READ SENSOR
   // ---------------------------------------------------
 
-  else {
-
-    Serial.print("Distance: ");
-    Serial.print(distance, 2);
-    Serial.println(" cm");
-
-
-    handleDistanceBehaviour(distance);
-  }
-
+  distance =
+      measureDistance();
 
   // ---------------------------------------------------
-  // SEND TELEMETRY EVERY 2 SECONDS
+  // INVALID READING
   // ---------------------------------------------------
-
-  unsigned long currentTime = millis();
-
 
   if (
-    currentTime - lastSendTime
-    >= SEND_INTERVAL
-  ) {
+      distance < 2 ||
+      distance > 400)
+  {
 
-    lastSendTime = currentTime;
+    Serial.println(
+        "Invalid / no sensor reading");
 
+    // Fail-safe:
+    // Close gate if sensor fails.
+    setGate(false);
+
+    noTone(
+        buzzerPin);
 
     if (
-      distance >= 2 &&
-      distance <= 400
-    ) {
+        now - lastLCDUpdate >= LCD_INTERVAL)
+    {
 
-      sendTelemetry(distance);
+      lastLCDUpdate =
+          now;
+
+      displayMessage(
+          "SENSOR ERROR",
+          "GATE CLOSED");
     }
   }
 
+  // ---------------------------------------------------
+  // VALID READING
+  // ---------------------------------------------------
 
-  delay(100);
+  else
+  {
+
+    Serial.print(
+        "Distance: ");
+
+    Serial.print(
+        distance,
+        2);
+
+    Serial.println(
+        " cm");
+
+    handleAutomaticSystem(
+        distance);
+  }
+
+  // ---------------------------------------------------
+  // SEND TELEMETRY
+  // ---------------------------------------------------
+
+  if (
+      now - lastTelemetryTime >= TELEMETRY_INTERVAL)
+  {
+
+    lastTelemetryTime =
+        now;
+
+    if (
+        distance >= 2 &&
+        distance <= 400)
+    {
+
+      sendTelemetry(
+          distance);
+    }
+  }
+
+  delay(50);
 }
 
+// =====================================================
+// AUTOMATIC SYSTEM
+// =====================================================
+
+void handleAutomaticSystem(
+    float currentDistance)
+{
+
+  unsigned long now =
+      millis();
+
+  // ===================================================
+  // CRITICAL
+  // <= 10 CM
+  // ===================================================
+
+  if (
+      currentDistance <= CRITICAL_DISTANCE)
+  {
+
+    setGate(false);
+
+    // Short beep approximately once per second
+    if (
+        now - lastBuzzerTime >= 1000)
+    {
+
+      lastBuzzerTime =
+          now;
+
+      tone(
+          buzzerPin,
+          1500);
+
+      delay(120);
+
+      noTone(
+          buzzerPin);
+    }
+
+    if (
+        now - lastLCDUpdate >= LCD_INTERVAL)
+    {
+
+      lastLCDUpdate =
+          now;
+
+      displayMessage(
+          "STOP VEHICLE",
+          "ANIMAL AHEAD");
+    }
+  }
+
+  // ===================================================
+  // ANIMAL CROSSING
+  // 10 - 30 CM
+  // ===================================================
+
+  else if (
+      currentDistance <= GATE_CLOSE_DISTANCE)
+  {
+
+    setGate(false);
+
+    // Much slower warning beep
+    if (
+        now - lastBuzzerTime >= 3000)
+    {
+
+      lastBuzzerTime =
+          now;
+
+      tone(
+          buzzerPin,
+          1100);
+
+      delay(100);
+
+      noTone(
+          buzzerPin);
+    }
+
+    if (
+        now - lastLCDUpdate >= LCD_INTERVAL)
+    {
+
+      lastLCDUpdate =
+          now;
+
+      displayMessage(
+          "SLOW DOWN",
+          "ANIMAL CROSSING");
+    }
+  }
+
+  // ===================================================
+  // TRANSITION / HYSTERESIS
+  // 30 - 40 CM
+  // ===================================================
+
+  else if (
+      currentDistance < GATE_OPEN_DISTANCE)
+  {
+
+    // IMPORTANT:
+    // Do not change the gate state here.
+    //
+    // If it was closed, it stays closed.
+    // If it was already open, it stays open.
+    //
+    // This prevents rapid servo movement.
+
+    noTone(
+        buzzerPin);
+
+    if (
+        now - lastLCDUpdate >= LCD_INTERVAL)
+    {
+
+      lastLCDUpdate =
+          now;
+
+      displayMessage(
+          "CAUTION",
+          "CHECK CROSSING");
+    }
+  }
+
+  // ===================================================
+  // ROAD CLEAR
+  // >= 40 CM
+  // ===================================================
+
+  else
+  {
+
+    setGate(true);
+
+    noTone(
+        buzzerPin);
+
+    if (
+        now - lastLCDUpdate >= LCD_INTERVAL)
+    {
+
+      lastLCDUpdate =
+          now;
+
+      displayMessage(
+          "ROAD CLEAR",
+          "DRIVE SAFELY");
+    }
+  }
+}
 
 // =====================================================
-// WIFI CONNECTION
+// GATE CONTROL
 // =====================================================
 
-void connectToWiFi() {
+void setGate(
+    bool openGate)
+{
+
+  // Do absolutely nothing if the gate is
+  // already in the requested position.
+  //
+  // This is important for servo stability.
+
+  if (
+      gateInitialized &&
+      gateIsOpen == openGate)
+  {
+
+    return;
+  }
+
+  gateInitialized = true;
+
+  gateIsOpen =
+      openGate;
+
+  if (openGate)
+  {
+
+    Serial.println(
+        "Gate -> OPEN");
+
+    gateServo.write(
+        GATE_OPEN);
+  }
+
+  else
+  {
+
+    Serial.println(
+        "Gate -> CLOSED");
+
+    gateServo.write(
+        GATE_CLOSED);
+  }
+}
+
+// =====================================================
+// ULTRASONIC SENSOR
+// =====================================================
+
+float measureDistance()
+{
+
+  digitalWrite(
+      trigPin,
+      LOW);
+
+  delayMicroseconds(2);
+
+  digitalWrite(
+      trigPin,
+      HIGH);
+
+  delayMicroseconds(10);
+
+  digitalWrite(
+      trigPin,
+      LOW);
+
+  duration =
+      pulseIn(
+          echoPin,
+          HIGH,
+          30000);
+
+  if (
+      duration == 0)
+  {
+
+    return -1;
+  }
+
+  float calculatedDistance =
+      duration * 0.0343 / 2;
+
+  return calculatedDistance;
+}
+
+// =====================================================
+// API STATUS
+// =====================================================
+
+String getStatus(
+    float currentDistance)
+{
+
+  if (
+      currentDistance <= CRITICAL_DISTANCE)
+  {
+
+    return "animal_ahead";
+  }
+
+  // Keep warning active through the hysteresis zone.
+  // This keeps the UI consistent with the closed gate.
+
+  if (
+      currentDistance < GATE_OPEN_DISTANCE)
+  {
+
+    return "animal_crossing";
+  }
+
+  return "road_clear";
+}
+
+// =====================================================
+// LCD
+// =====================================================
+
+void displayMessage(
+    String line1,
+    String line2)
+{
+
+  // Clear line 1
+  lcd.setCursor(
+      0,
+      0);
+
+  lcd.print(
+      "                ");
+
+  lcd.setCursor(
+      0,
+      0);
+
+  lcd.print(
+      line1.substring(
+          0,
+          16));
+
+  // Clear line 2
+  lcd.setCursor(
+      0,
+      1);
+
+  lcd.print(
+      "                ");
+
+  lcd.setCursor(
+      0,
+      1);
+
+  lcd.print(
+      line2.substring(
+          0,
+          16));
+}
+
+// =====================================================
+// WIFI
+// =====================================================
+
+void connectToWiFi()
+{
 
   Serial.println();
 
   Serial.print(
-    "Connecting to Wi-Fi: "
-  );
+      "Connecting to WiFi: ");
 
-  Serial.println(WIFI_SSID);
+  Serial.println(
+      WIFI_SSID);
 
+  displayMessage(
+      "CONNECTING WIFI",
+      "PLEASE WAIT");
 
   WiFi.begin(
-    WIFI_SSID,
-    WIFI_PASSWORD
-  );
-
+      WIFI_SSID,
+      WIFI_PASSWORD);
 
   int attempts = 0;
 
-
   while (
-    WiFi.status() != WL_CONNECTED
-    &&
-    attempts < 30
-  ) {
+      WiFi.status() != WL_CONNECTED &&
+      attempts < 30)
+  {
 
     delay(500);
 
@@ -243,400 +654,137 @@ void connectToWiFi() {
     attempts++;
   }
 
-
   Serial.println();
 
-
   if (
-    WiFi.status()
-    == WL_CONNECTED
-  ) {
+      WiFi.status() == WL_CONNECTED)
+  {
 
     Serial.println(
-      "Wi-Fi connected!"
-    );
-
+        "WiFi connected!");
 
     Serial.print(
-      "ESP32 IP address: "
-    );
+        "ESP32 IP: ");
 
     Serial.println(
-      WiFi.localIP()
-    );
+        WiFi.localIP());
+
+    displayMessage(
+        "WIFI CONNECTED",
+        "SYSTEM ONLINE");
   }
 
-  else {
+  else
+  {
 
     Serial.println(
-      "Wi-Fi connection failed."
-    );
+        "WiFi connection failed");
+
+    displayMessage(
+        "WIFI FAILED",
+        "LOCAL MODE");
   }
+
+  delay(1000);
 }
 
-
 // =====================================================
-// ULTRASONIC SENSOR
-// =====================================================
-
-float measureDistance() {
-
-  // Make sure TRIG begins LOW
-
-  digitalWrite(
-    trigPin,
-    LOW
-  );
-
-  delayMicroseconds(2);
-
-
-  // Send 10 microsecond pulse
-
-  digitalWrite(
-    trigPin,
-    HIGH
-  );
-
-  delayMicroseconds(10);
-
-
-  digitalWrite(
-    trigPin,
-    LOW
-  );
-
-
-  // Wait for echo
-
-  duration = pulseIn(
-    echoPin,
-    HIGH,
-    30000
-  );
-
-
-  // Timeout
-
-  if (duration == 0) {
-
-    return -1;
-  }
-
-
-  // Calculate distance
-
-  float calculatedDistance =
-    duration * 0.0343 / 2;
-
-
-  return calculatedDistance;
-}
-
-
-// =====================================================
-// DISTANCE BEHAVIOUR
-// =====================================================
-
-void handleDistanceBehaviour(
-  float currentDistance
-) {
-
-  // ---------------------------------------------------
-  // VERY CLOSE
-  // 2 - 10 CM
-  // ---------------------------------------------------
-
-  if (currentDistance <= 10) {
-
-    myServo.write(90);
-
-    tone(
-      buzzerPin,
-      1500
-    );
-
-    delay(80);
-
-    noTone(
-      buzzerPin
-    );
-  }
-
-
-  // ---------------------------------------------------
-  // CLOSE
-  // 11 - 30 CM
-  // ---------------------------------------------------
-
-  else if (
-    currentDistance <= 30
-  ) {
-
-    myServo.write(0);
-
-    tone(
-      buzzerPin,
-      1200
-    );
-
-    delay(70);
-
-    noTone(
-      buzzerPin
-    );
-  }
-
-
-  // ---------------------------------------------------
-  // NEARBY
-  // 31 - 60 CM
-  // ---------------------------------------------------
-
-  else if (
-    currentDistance <= 60
-  ) {
-
-    myServo.write(0);
-
-    tone(
-      buzzerPin,
-      900
-    );
-
-    delay(50);
-
-    noTone(
-      buzzerPin
-    );
-  }
-
-
-  // ---------------------------------------------------
-  // CLEAR
-  // ABOVE 60 CM
-  // ---------------------------------------------------
-
-  else {
-
-    myServo.write(0);
-
-    noTone(
-      buzzerPin
-    );
-  }
-}
-
-
-// =====================================================
-// DETERMINE STATUS
-// =====================================================
-
-String getStatus(
-  float currentDistance
-) {
-
-  if (
-    currentDistance <= 10
-  ) {
-
-    return "very_close";
-  }
-
-
-  else if (
-    currentDistance <= 30
-  ) {
-
-    return "close";
-  }
-
-
-  else if (
-    currentDistance <= 60
-  ) {
-
-    return "nearby";
-  }
-
-
-  else {
-
-    return "clear";
-  }
-}
-
-
-// =====================================================
-// SEND DATA TO API
+// SEND TELEMETRY
 // =====================================================
 
 void sendTelemetry(
-  float currentDistance
-) {
+    float currentDistance)
+{
 
-  // ---------------------------------------------------
-  // CHECK WIFI
-  // ---------------------------------------------------
-
+  // Don't let an API outage stop the physical system.
   if (
-    WiFi.status()
-    != WL_CONNECTED
-  ) {
+      WiFi.status() != WL_CONNECTED)
+  {
 
     Serial.println(
-      "Wi-Fi disconnected."
-    );
+        "Telemetry skipped: WiFi offline");
 
-
-    Serial.println(
-      "Attempting reconnect..."
-    );
-
-
-    connectToWiFi();
-
-
-    if (
-      WiFi.status()
-      != WL_CONNECTED
-    ) {
-
-      Serial.println(
-        "Cannot send telemetry."
-      );
-
-      return;
-    }
+    return;
   }
-
-
-  // ---------------------------------------------------
-  // CREATE HTTP REQUEST
-  // ---------------------------------------------------
 
   HTTPClient http;
 
-
   http.begin(
-    API_URL
-  );
-
-
-  // Tell Express we're sending JSON
+      API_URL);
 
   http.addHeader(
-    "Content-Type",
-    "application/json"
-  );
-
-
-  // Device authentication
+      "Content-Type",
+      "application/json");
 
   http.addHeader(
-    "x-api-key",
-    DEVICE_API_KEY
-  );
-
-
-  // ---------------------------------------------------
-  // CREATE JSON
-  // ---------------------------------------------------
+      "x-api-key",
+      DEVICE_API_KEY);
 
   String status =
-    getStatus(
-      currentDistance
-    );
+      getStatus(
+          currentDistance);
 
+  String gateState =
+      gateIsOpen
+          ? "open"
+          : "closed";
 
   String json =
-    "{"
-    "\"deviceId\":\""
-    + String(DEVICE_ID)
-    + "\","
+      "{"
+      "\"deviceId\":\"" +
+      String(DEVICE_ID) + "\","
 
-    "\"distance\":"
-    + String(
-        currentDistance,
-        2
-      )
-    + ","
+                          "\"distance\":" +
+      String(
+          currentDistance,
+          2) +
+      ","
 
-    "\"status\":\""
-    + status
-    + "\""
-    "}";
+      "\"status\":\"" +
+      status + "\","
 
+               "\"gateState\":\"" +
+      gateState + "\","
 
-  // ---------------------------------------------------
-  // DEBUG OUTPUT
-  // ---------------------------------------------------
+                  "\"controlMode\":\"auto\""
+                  "}";
 
   Serial.println();
+
   Serial.println(
-    "Sending telemetry..."
-  );
+      "Sending telemetry:");
 
-  Serial.println(json);
-
-
-  // ---------------------------------------------------
-  // POST REQUEST
-  // ---------------------------------------------------
+  Serial.println(
+      json);
 
   int responseCode =
-    http.POST(json);
-
+      http.POST(
+          json);
 
   Serial.print(
-    "HTTP response: "
-  );
+      "HTTP response: ");
 
   Serial.println(
-    responseCode
-  );
-
-
-  // ---------------------------------------------------
-  // SERVER RESPONSE
-  // ---------------------------------------------------
+      responseCode);
 
   if (
-    responseCode > 0
-  ) {
-
-    String response =
-      http.getString();
-
+      responseCode > 0)
+  {
 
     Serial.println(
-      "Server response:"
-    );
-
-    Serial.println(
-      response
-    );
+        http.getString());
   }
 
-  else {
+  else
+  {
 
     Serial.println(
-      "Request failed."
-    );
-
+        "Telemetry request failed");
 
     Serial.println(
-      http.errorToString(
-        responseCode
-      )
-    );
+        http.errorToString(
+            responseCode));
   }
-
-
-  // Close HTTP connection
 
   http.end();
-
-
-  Serial.println();
 }

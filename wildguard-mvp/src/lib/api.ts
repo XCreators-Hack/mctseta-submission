@@ -1,8 +1,15 @@
 import type { HealthResult, TelemetryResult } from "./types";
 
 /**
- * Single source of truth for the API base URL. Never hardcode the address
- * anywhere else in the app — import getApiBaseUrl() or the functions below.
+ * Single source of truth for the (public) API base URL used for reading
+ * telemetry directly from the browser. Never hardcode the address
+ * anywhere else in the app — import getApiBaseUrl() or the functions
+ * below.
+ *
+ * This is separate from the server-only URL/key used to send commands —
+ * see src/lib/commands.ts and src/app/api/device-command/route.ts. Reads
+ * are unauthenticated and safe to make directly from the client; writes
+ * are not.
  */
 export function getApiBaseUrl(): string {
   const url = process.env.NEXT_PUBLIC_API_URL;

@@ -4,15 +4,10 @@ import { useEffect, useState } from "react";
 import { getHealth, getApiBaseUrl } from "@/lib/api";
 import { POLL_INTERVAL_MS } from "@/lib/config";
 import ConnectionStatus from "@/components/ConnectionStatus";
-
-function InfoRow({ label, value }: { label: string; value: React.ReactNode }) {
-  return (
-    <div className="flex items-center justify-between border-b border-border py-2.5 last:border-b-0">
-      <span className="text-xs text-muted">{label}</span>
-      <span className="text-sm text-text mono">{value}</span>
-    </div>
-  );
-}
+import LastUpdated from "@/components/LastUpdated";
+import CopyableValue from "@/components/CopyableValue";
+import InfoRow from "@/components/InfoRow";
+import SpecPanel from "@/components/SpecPanel";
 
 export default function SystemPage() {
   const [apiOnline, setApiOnline] = useState<boolean | null>(null);
@@ -28,7 +23,7 @@ export default function SystemPage() {
       const result = await getHealth(controller.signal);
       if (!controller.signal.aborted) {
         setApiOnline(result.kind === "ok");
-        setCheckedAt(new Date().toLocaleTimeString());
+        setCheckedAt(new Date().toISOString());
       }
       inFlight = false;
     }
@@ -42,20 +37,28 @@ export default function SystemPage() {
     };
   }, []);
 
-  return (
-    <div className="flex flex-col gap-4 max-w-2xl">
-      <h2 className="text-sm font-medium text-text">System</h2>
+  const apiUrl = getApiBaseUrl();
 
-      <div className="rounded border border-border bg-surface px-4">
+  return (
+    <div className="flex flex-col gap-5 max-w-2xl">
+      <SpecPanel title="Connectivity">
         <InfoRow
-          label="API Status"
-          value={<ConnectionStatus online={apiOnline === true} label={apiOnline === null ? "Checking..." : apiOnline ? "Online" : "Offline"} />}
+          label="API status"
+          value={
+            <ConnectionStatus
+              online={apiOnline === true}
+              label={apiOnline === null ? "Checking" : apiOnline ? "Online" : "Offline"}
+            />
+          }
         />
-        <InfoRow label="Frontend Status" value={<ConnectionStatus online={true} label="Running" />} />
-        <InfoRow label="Current API URL" value={getApiBaseUrl() || "Not configured"} />
-        <InfoRow label="Telemetry Refresh Rate" value={`${POLL_INTERVAL_MS / 1000}s`} />
-        <InfoRow label="Last Health Check" value={checkedAt ?? "—"} />
-      </div>
+        <InfoRow label="API URL" value={apiUrl ? <CopyableValue value={apiUrl} /> : "Not configured"} />
+        <InfoRow label="Last health check" value={<LastUpdated isoString={checkedAt} />} />
+      </SpecPanel>
+
+      <SpecPanel title="Runtime">
+        <InfoRow label="Environment" value={process.env.NODE_ENV} />
+        <InfoRow label="Telemetry refresh rate" value={`${POLL_INTERVAL_MS / 1000}s`} />
+      </SpecPanel>
 
       <p className="text-xs text-muted">
         API keys and device credentials are never exposed to the frontend. This page only reflects
